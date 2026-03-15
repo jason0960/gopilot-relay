@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: gopilot-relay
+    runtime: node
+    region: oregon
+    plan: starter
+    buildCommand: npm install && npm run build
+    startCommand: node dist/index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+    healthCheckPath: /health
