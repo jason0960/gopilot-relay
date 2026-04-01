@@ -574,6 +574,7 @@ export function createRelayServer(opts: RelayServerOptions = {}): RelayServerIns
             ws.ping();
           }
         }, heartbeatIntervalMs);
+        heartbeatInterval.unref();
 
         cleanupInterval = setInterval(() => {
           const now = Date.now();
@@ -593,6 +594,7 @@ export function createRelayServer(opts: RelayServerOptions = {}): RelayServerIns
             }
           }
         }, 60_000);
+        cleanupInterval.unref();
 
         httpServer.listen(port, () => {
           const addr = httpServer.address() as { port: number };
