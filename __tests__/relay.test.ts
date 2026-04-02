@@ -114,6 +114,7 @@ describe('Relay Server (production code)', () => {
     openSockets = [];
     // Clear rooms between tests to avoid MAX_ROOMS cap
     relay.rooms.clear();
+    relay.pairings.clear();
   });
 
   afterAll(async () => {
@@ -151,6 +152,116 @@ describe('Relay Server (production code)', () => {
     it('OPTIONS returns 204 (CORS preflight)', async () => {
       const res = await fetch(`http://127.0.0.1:${port}/health`, { method: 'OPTIONS' });
       expect(res.status).toBe(204);
+    });
+  });
+
+  // ─── Pairing Exchange ───────────────────────────────────────
+
+  describe('pairing exchange', () => {
+    const samplePairing = {
+      projectId: 'test-project',
+      topicName: 'TestTopic',
+      mobileSubscription: 'mobile-sub',
+      extensionSubscription: 'ext-sub',
+      userId: 'ext-abc123',
+      accessToken: 'fake-token-123',
+      tokenExpiry: Date.now() + 3_600_000,
+    };
+
+    it('POST /pair deposits data and returns a room code', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/pair`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(samplePairing),
+      });
+      expect(res.status).toBe(201);
+      const body: any = await res.json();
+      expect(body.code).toMatch(/^[A-Z0-9]{6}$/);
+      expect(relay.pairings.has(body.code)).toBe(true);
+    });
+
+    it('GET /pair/:code returns pairing data and deletes it (one-time use)', async () => {
+      // Deposit
+      const postRes = await fetch(`http://127.0.0.1:${port}/pair`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(samplePairing),
+      });
+      const { code } = await postRes.json() as { code: string };
+
+      // Fetch
+      const getRes = await fetch(`http://127.0.0.1:${port}/pair/${code}`);
+      expect(getRes.status).toBe(200);
+      const data: any = await getRes.json();
+      expect(data.projectId).toBe('test-project');
+      expect(data.accessToken).toBe('fake-token-123');
+
+      // Second fetch should 404 (one-time use)
+      const getRes2 = await fetch(`http://127.0.0.1:${port}/pair/${code}`);
+      expect(getRes2.status).toBe(404);
+    });
+
+    it('GET /pair/:code with unknown code returns 404', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/pair/ZZZZZZ`);
+      expect(res.status).toBe(404);
+      const body: any = await res.json();
+      expect(body.error).toContain('not found');
+    });
+
+    it('POST /pair with invalid JSON returns 400', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/pair`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: 'not json',
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it('POST /pair with non-object body returns 400', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/pair`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify('just a string'),
+      });
+      expect(res.status).toBe(400);
+    });
+
+    it('pairing codes are case-insensitive on fetch', async () => {
+      const postRes = await fetch(`http://127.0.0.1:${port}/pair`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(samplePairing),
+      });
+      const { code } = await postRes.json() as { code: string };
+
+      // Fetch with lowercase
+      const getRes = await fetch(`http://127.0.0.1:${port}/pair/${code.toLowerCase()}`);
+      expect(getRes.status).toBe(200);
+    });
+
+    it('pairing code does not collide with room codes', async () => {
+      // Create a WS room
+      const host = track(await connectWs(port, '/relay/host'));
+      const roomMsg = await host.waitForMessage();
+      const roomCode = roomMsg.code;
+
+      // Create a pairing — should get a different code
+      const postRes = await fetch(`http://127.0.0.1:${port}/pair`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(samplePairing),
+      });
+      const { code: pairingCode } = await postRes.json() as { code: string };
+      expect(pairingCode).not.toBe(roomCode);
+    });
+
+    it('CORS headers are present on pairing responses', async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/pair`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(samplePairing),
+      });
+      expect(res.headers.get('access-control-allow-origin')).toBe('*');
     });
   });
 

@@ -22,6 +22,22 @@ export interface Room {
   ttlMs: number;
 }
 
+/**
+ * A pairing entry stores opaque JSON data (e.g. Pub/Sub pairing info)
+ * behind a short room code. The mobile app fetches it once by code,
+ * then the entry is deleted (one-time use).
+ */
+export interface Pairing {
+  code: string;
+  data: unknown;
+  createdAt: number;
+  /** TTL in milliseconds (default: 10 minutes). */
+  ttlMs: number;
+}
+
+/** Default pairing TTL: 10 minutes */
+export const DEFAULT_PAIRING_TTL_MS = 10 * 60 * 1000;
+
 // ─── Constants ──────────────────────────────────────────────────
 
 export const CODE_LENGTH = 6;
@@ -94,6 +110,7 @@ export interface RelayServerInstance {
   httpServer: Server;
   wss: WebSocketServer;
   rooms: Map<string, Room>;
+  pairings: Map<string, Pairing>;
   /** Start listening on the configured port. Returns actual port. */
   start(): Promise<number>;
   /** Gracefully shut down the server. */
@@ -122,6 +139,7 @@ export function createRelayServer(opts: RelayServerOptions = {}): RelayServerIns
   // ─── State ──────────────────────────────────────────────────
 
   const rooms = new Map<string, Room>();
+  const pairings = new Map<string, Pairing>();
   const wsToRoom = new Map<WebSocket, { roomCode: string; role: 'host' | 'client' }>();
   const alive = new Map<WebSocket, boolean>();
 
@@ -234,6 +252,59 @@ export function createRelayServer(opts: RelayServerOptions = {}): RelayServerIns
     if (parsedUrl.pathname === '/rooms' && req.method === 'GET') {
       res.writeHead(403, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Endpoint disabled' }));
+      return;
+    }
+
+    // ─── Pairing Exchange Endpoints ──────────────────────────
+
+    // POST /pair — deposit pairing data, get back a room code
+    if (parsedUrl.pathname === '/pair' && req.method === 'POST') {
+      let body = '';
+      req.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+      req.on('end', () => {
+        try {
+          const parsed = JSON.parse(body);
+          if (!parsed || typeof parsed !== 'object') {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Body must be a JSON object' }));
+            return;
+          }
+          // Generate a unique code (reuse the room code generator with pairings as extra check)
+          const allCodes = new Map<string, any>([...rooms, ...pairings]);
+          const code = generateRoomCode(allCodes as Map<string, Room>);
+          const pairing: Pairing = {
+            code,
+            data: parsed,
+            createdAt: Date.now(),
+            ttlMs: DEFAULT_PAIRING_TTL_MS,
+          };
+          pairings.set(code, pairing);
+          log(`[Pairing ${code}] Created (${body.length} bytes)`);
+          res.writeHead(201, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ code }));
+        } catch {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+        }
+      });
+      return;
+    }
+
+    // GET /pair/:code — fetch and delete pairing data (one-time use)
+    const pairMatch = parsedUrl.pathname?.match(/^\/pair\/([A-Z0-9]{4,8})$/i);
+    if (pairMatch && req.method === 'GET') {
+      const code = pairMatch[1].toUpperCase();
+      const pairing = pairings.get(code);
+      if (!pairing) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Pairing not found or expired' }));
+        return;
+      }
+      // One-time use — delete after fetch
+      pairings.delete(code);
+      log(`[Pairing ${code}] Fetched and deleted`);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(pairing.data));
       return;
     }
 
@@ -557,6 +628,7 @@ export function createRelayServer(opts: RelayServerOptions = {}): RelayServerIns
     httpServer,
     wss,
     rooms,
+    pairings,
     start(): Promise<number> {
       return new Promise((resolve) => {
         heartbeatInterval = setInterval(() => {
@@ -591,6 +663,13 @@ export function createRelayServer(opts: RelayServerOptions = {}): RelayServerIns
                 }
               }
               rooms.delete(code);
+            }
+          }
+          // Clean up expired pairings
+          for (const [code, pairing] of pairings) {
+            if (now - pairing.createdAt > pairing.ttlMs) {
+              log(`[Pairing ${code}] Expired — cleaning up`);
+              pairings.delete(code);
             }
           }
         }, 60_000);
