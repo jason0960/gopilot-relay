@@ -1,8 +1,28 @@
 # GoPilot Relay Server
 
-WebSocket relay hub for [GoPilot](https://github.com/jason0960/vscode_ide_mobile_plug) — bridges VS Code extensions and mobile clients via room-based WebSocket routing.
+WebSocket relay hub + pairing exchange for [GoPilot](https://github.com/jason0960/vscode_ide_mobile_plug) — bridges VS Code extensions and mobile clients via room-based WebSocket routing, and serves as a lightweight pairing rendezvous for Pub/Sub connections.
 
 ## How it works
+
+### Pub/Sub Pairing (primary)
+
+```
+┌──────────────────┐  POST /pair  ┌─────────────────┐  GET /pair/:code  ┌────────────────┐
+│  VS Code Ext     │ ───────────→ │  Relay Server   │ ←──────────────── │  Mobile App    │
+│  (GoPilot)       │              │  (this server)  │                   │  (GoPilot)     │
+└──────────────────┘              └─────────────────┘                   └────────────────┘
+         │                                                                       │
+         │              ┌──────────────────────┐                                 │
+         └──────────────│   GCP Pub/Sub Topic  │─────────────────────────────────┘
+                        └──────────────────────┘
+            All subsequent messages flow via Pub/Sub (no relay)
+```
+
+1. VS Code extension POSTs Pub/Sub credentials to `/pair` → gets a 6-char pairing code
+2. Mobile app GETs `/pair/:code` → receives credentials (one-time, auto-deleted)
+3. Mobile connects directly to GCP Pub/Sub — relay is no longer involved
+
+### WebSocket Relay (fallback)
 
 ```
 ┌──────────────────┐        ┌─────────────────┐        ┌────────────────┐
@@ -72,6 +92,8 @@ PORT=4800 node dist/index.js
 | Path | Method | Description |
 |------|--------|-------------|
 | `/health` | GET | Returns `{ status: 'ok', rooms, uptime }` |
+| `/pair` | POST | Registers Pub/Sub pairing info, returns `{ code }`. Body: `{ projectId, topicName, extSubscription, mobileSubscription, accessToken }` |
+| `/pair/:code` | GET | Returns Pub/Sub credentials for the given pairing code. **One-time use** — data is deleted after retrieval. Returns 404 if expired or already used. TTL: 10 minutes. |
 
 ## Security
 
@@ -81,11 +103,13 @@ PORT=4800 node dist/index.js
 - Max clients per room: 10
 - Host secret prevents room hijacking
 - TTL-based room expiry
+- Pairing codes are one-time-use with 10-min TTL — prevents replay attacks
+- Pairing data is deleted on retrieval — credentials never persist on the relay
 
 ## Testing
 
 ```bash
-npm test
+npm test             # 58 tests
 ```
 
 ## License
