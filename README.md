@@ -1,6 +1,8 @@
-# GoPilot Relay Server
+# AgentDeck Relay Server
 
-WebSocket relay hub + pairing exchange for [GoPilot](https://github.com/jason0960/vscode_ide_mobile_plug) — bridges VS Code extensions and mobile clients via room-based WebSocket routing, and serves as a lightweight pairing rendezvous for Pub/Sub connections.
+WebSocket relay hub + pairing exchange for [AgentDeck](https://github.com/jason0960/vscode_ide_mobile_plug) — bridges VS Code extensions and mobile clients via room-based WebSocket routing, and serves as a lightweight pairing rendezvous for Pub/Sub connections.
+
+**Live:** `wss://gopilot-relay.onrender.com`
 
 ## How it works
 
@@ -97,6 +99,7 @@ PORT=4800 node dist/index.js
 
 ## Security
 
+- **End-to-end encrypted** — all RPC payloads are encrypted with X25519 + XSalsa20-Poly1305 (tweetnacl); the relay server cannot read message contents
 - Per-socket message rate limiting (60 msgs / 10s)
 - Per-IP connection rate limiting (20 / 60s)
 - Max message size: 1 MB
