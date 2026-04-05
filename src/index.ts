@@ -249,12 +249,6 @@ export function createRelayServer(opts: RelayServerOptions = {}): RelayServerIns
       return;
     }
 
-    if (parsedUrl.pathname === '/rooms' && req.method === 'GET') {
-      res.writeHead(403, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Endpoint disabled' }));
-      return;
-    }
-
     // ─── Pairing Exchange Endpoints ──────────────────────────
 
     // POST /pair — deposit pairing data, get back a room code
@@ -677,7 +671,7 @@ export function createRelayServer(opts: RelayServerOptions = {}): RelayServerIns
 
         httpServer.listen(port, () => {
           const addr = httpServer.address() as { port: number };
-          log(`Mobile Copilot Relay Server listening on port ${addr.port}`);
+          log(`AgentDeck Relay Server listening on port ${addr.port}`);
           log(`  Room TTL: ${roomTtlMs / 1000 / 60} minutes`);
           log(`  Max rooms: ${maxRooms}`);
           resolve(addr.port);

@@ -137,11 +137,9 @@ describe('Relay Server (production code)', () => {
       expect(typeof body.rooms).toBe('number');
     });
 
-    it('GET /rooms returns 403', async () => {
+    it('GET /rooms returns 404 (endpoint removed)', async () => {
       const res = await fetch(`http://127.0.0.1:${port}/rooms`);
-      expect(res.status).toBe(403);
-      const body: any = await res.json();
-      expect(body.error).toBe('Endpoint disabled');
+      expect(res.status).toBe(404);
     });
 
     it('GET /unknown returns 404', async () => {

@@ -1,7 +1,7 @@
 {
   "name": "gopilot-relay",
   "version": "1.0.0",
-  "description": "Cloud relay server for GoPilot — bridges VS Code extensions and mobile clients via WebSocket rooms",
+  "description": "Cloud relay server for AgentDeck — bridges VS Code extensions and mobile clients via WebSocket rooms",
   "main": "dist/index.js",
   "license": "MIT",
   "engines": {
